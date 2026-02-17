@@ -53,7 +53,7 @@ VARIETIES = {
 
 def _api_get(path, params=None):
     """Make an authenticated GET request to the Ambient Weather API."""
-    base = os.environ.get("AMBIENT_ENDPOINT", "https://rt.ambientweather.net/v1")
+    base = os.environ.get("AMBIENT_ENDPOINT") or "https://rt.ambientweather.net/v1"
     p = {
         "apiKey": os.environ["AMBIENT_API_KEY"],
         "applicationKey": os.environ["AMBIENT_APPLICATION_KEY"],
