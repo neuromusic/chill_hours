@@ -471,7 +471,7 @@ def write_summary_json(nightly, probabilities=None):
 
     varieties = []
     for name, target in sorted(VARIETIES.items(), key=lambda x: x[1]):
-        entry = {"name": name, "target": target, "met": total >= target}
+        entry = {"name": name, "target": int(target), "met": bool(total >= target)}
         if probabilities and name in probabilities:
             entry["probability"] = round(probabilities[name], 3)
         varieties.append(entry)
