@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Chill Hours Tracker — Phoenix 2025-2026</title>
-  <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -38,9 +37,10 @@
       padding: 1rem;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       margin-bottom: 1.5rem;
+      text-align: center;
     }
-    .chart-container svg {
-      width: 100%;
+    .chart-container img {
+      max-width: 100%;
       height: auto;
     }
     table {
@@ -75,12 +75,18 @@
       <div class="value" id="nights">--</div>
     </div>
     <div class="card">
+      <div class="label">Avg / Night</div>
+      <div class="value" id="avg">--</div>
+    </div>
+    <div class="card">
       <div class="label">Last Updated</div>
       <div class="value" id="updated" style="font-size:1.1rem">--</div>
     </div>
   </div>
 
-  <div class="chart-container" id="chart"></div>
+  <div class="chart-container">
+    <img src="chill_hours.png" alt="Chill Hours Chart">
+  </div>
 
   <table>
     <thead>
@@ -100,13 +106,13 @@
     Data from Ambient Weather station. Chill hours = hours between 32&ndash;45&deg;F during nighttime (noon to noon).
   </div>
 
-  <script src="chart.js"></script>
   <script>
     fetch('summary.json')
       .then(r => r.json())
       .then(data => {
         document.getElementById('total').textContent = data.total_chill_hours;
         document.getElementById('nights').textContent = data.nights_tracked;
+        document.getElementById('avg').textContent = data.avg_per_night;
         document.getElementById('updated').textContent = data.last_updated || '--';
 
         const tbody = document.getElementById('varieties');
