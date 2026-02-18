@@ -71,10 +71,6 @@
       <div class="value" id="nights">--</div>
     </div>
     <div class="card">
-      <div class="label">Avg / Night</div>
-      <div class="value" id="avg">--</div>
-    </div>
-    <div class="card">
       <div class="label">Last Updated</div>
       <div class="value" id="updated" style="font-size:1.1rem">--</div>
     </div>
@@ -145,18 +141,28 @@
       });
 
     function renderCharts(data) {
-      const nightly = data.nightly || [];
-      const historical = data.historical || [];
       const varieties = data.varieties || [];
 
       const xlimStart = new Date(data.xlim_start);
       const xlimEnd = new Date(data.xlim_end);
+
+      // Only plot data from Nov 1 onward
+      const nightly = (data.nightly || []).filter(d => new Date(d.date) >= xlimStart);
+      const historical = (data.historical || []).filter(d => new Date(d.date) >= xlimStart);
 
       const lastDate = nightly.length > 0
         ? new Date(nightly[nightly.length - 1].date)
         : xlimStart;
       const futureStart = new Date(lastDate.getTime() + 86400000);
       const midFuture = new Date((futureStart.getTime() + xlimEnd.getTime()) / 2);
+
+      const varietyEmoji = {
+        "Anna": "🍎",
+        "Dorsett Golden": "🍎",
+        "Desert Gold": "🍑",
+        "Mid-Pride": "🍑",
+        "Sauzee Swirl": "🍑",
+      };
 
       // Group varieties by target to avoid overlapping labels
       const byTarget = {};
@@ -168,7 +174,7 @@
         target: group[0].target,
         met: group.every(v => v.met),
         probability: group[0].probability,
-        names: group.map(v => v.name).join(", "),
+        names: group.map(v => (varietyEmoji[v.name] || "") + " " + v.name).join(", "),
       })).sort((a, b) => a.target - b.target);
 
       const containerNightly = document.getElementById("chart-nightly");
@@ -284,9 +290,9 @@
             strokeDasharray: "4",
             strokeOpacity: 0.7,
           }),
-          // Variety labels at right edge
+          // Variety labels at left edge
           Plot.text(varietyGroups, {
-            x: xlimEnd,
+            x: xlimStart,
             y: "target",
             text: d => {
               const sym = d.met ? "\u2714" : "\u2022";
@@ -295,8 +301,8 @@
                 : "";
               return `${sym} ${d.names} (${d.target} hrs)${prob}`;
             },
-            textAnchor: "end",
-            dx: -4,
+            textAnchor: "start",
+            dx: 4,
             dy: -6,
             fill: d => d.met ? "#2d8632" : "#b8860b",
             fontSize: 10,
