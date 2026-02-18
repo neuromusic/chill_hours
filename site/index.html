@@ -105,7 +105,6 @@
       .then(data => {
         document.getElementById('total').textContent = data.total_chill_hours;
         document.getElementById('nights').textContent = data.nights_tracked;
-        document.getElementById('avg').textContent = data.avg_per_night;
         document.getElementById('updated').textContent = data.last_updated || '--';
 
         const tbody = document.getElementById('varieties');
