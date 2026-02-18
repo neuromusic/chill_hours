@@ -8,15 +8,10 @@ from October 2025 through present.
 import json
 import os
 import time
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import numpy as np
 import requests
 
@@ -36,7 +31,6 @@ HOURS_PER_READING = INTERVAL_MINUTES / 60  # 1/12 hour
 DATA_DIR = Path("data")
 RAW_PARQUET = DATA_DIR / "raw_weather.parquet"
 HISTORICAL_CSV = Path("reference_data") / "daily_chill_hours_phoenix.csv"
-CHART_PATH = DATA_DIR / "chill_hours.png"
 SUMMARY_JSON = DATA_DIR / "summary.json"
 
 # Variety chill hour requirements (sources: Dave Wilson Nursery, Bay Laurel Nursery, urbanfarm.org)
@@ -362,107 +356,7 @@ def print_summary(nightly, probabilities=None):
     print()
 
 
-def plot_chill_hours(nightly, historical=None, probabilities=None):
-    """Generate two-panel chart: nightly bars + cumulative line with historical overlay."""
-    if nightly.empty:
-        print("No data to plot.")
-        return
-
-    DATA_DIR.mkdir(exist_ok=True)
-
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 9), sharex=True)
-    fig.suptitle("Chill Hours — Winter 2025–2026", fontsize=14, fontweight="bold")
-
-    # Shared x-axis range: Nov 1 through Mar 31
-    season_start = pd.Timestamp(f"{SEASON_START.year}-10-01")
-    xlim_left = pd.Timestamp(f"{SEASON_START.year}-11-01")
-    xlim_right = pd.Timestamp(f"{SEASON_START.year + 1}-03-31")
-
-    dates = nightly["night_date"]
-    last_observed = dates.max()
-
-    # Top panel: nightly bar chart
-    colors = ["#4a90d9" if h > 0 else "#cccccc" for h in nightly["chill_hours"]]
-    ax1.bar(dates, nightly["chill_hours"], color=colors, width=0.8)
-    # Shade unobserved future nights
-    ax1.axvspan(last_observed + pd.Timedelta(days=1), xlim_right,
-                color="#f0f0f0", zorder=0)
-    ax1.axvline(last_observed + pd.Timedelta(hours=12), color="#aaaaaa",
-                linewidth=1, linestyle="--", alpha=0.6)
-    mid_future = last_observed + (xlim_right - last_observed) / 2
-    ax1.text(mid_future, 0.92, "Not yet observed",
-             transform=ax1.get_xaxis_transform(),
-             fontsize=9, color="#999999", ha="center", va="top")
-    ax1.set_ylabel("Chill Hours per Night")
-    ax1.set_title("Daily Chill Hours (32–45°F, noon–noon)")
-    ax1.grid(axis="y", alpha=0.3)
-
-    # Bottom panel: cumulative with historical overlay
-
-    if historical is not None:
-        # Map historical day offsets to current season dates for aligned x-axis
-        hist_dates = season_start + pd.to_timedelta(historical.index, unit="D")
-        ax2.fill_between(hist_dates, historical["min"], historical["max"],
-                         alpha=0.08, color="#888888", label="Historical range (1975–2024)")
-        ax2.fill_between(hist_dates, historical["p25"], historical["p75"],
-                         alpha=0.2, color="#888888", label="25th–75th percentile")
-        ax2.plot(hist_dates, historical["median"], color="#888888",
-                 linewidth=1.5, linestyle="--", label="Historical median")
-
-    ax2.plot(dates, nightly["cumulative"], color="#d94a4a", linewidth=2.5,
-             label="2025–26 season")
-    ax2.fill_between(dates, nightly["cumulative"], alpha=0.15, color="#d94a4a")
-
-    # Variety chill hour thresholds
-    current_total = nightly["cumulative"].iloc[-1] if len(nightly) > 0 else 0
-    # Group varieties at the same threshold to stack labels
-    by_hours = defaultdict(list)
-    for name, hrs in VARIETIES.items():
-        by_hours[hrs].append(name)
-    for hrs, names in sorted(by_hours.items()):
-        met = current_total >= hrs
-        color = "#2d8632" if met else "#b8860b"
-        symbol = "\u2714" if met else "\u2022"
-        label = ", ".join(names)
-        ax2.axhline(y=hrs, color=color, linewidth=1, linestyle=":", alpha=0.7)
-        # Build annotation text, appending probability for unmet targets
-        ann_text = f" {symbol} {label} ({hrs} hrs)"
-        if not met and probabilities:
-            # Use the probability of the first variety at this threshold
-            prob = probabilities.get(names[0])
-            if prob is not None:
-                ann_text += f" \u2014 {prob * 100:.0f}%"
-        ax2.annotate(ann_text,
-                     xy=(1.01, hrs), xycoords=("axes fraction", "data"),
-                     va="center", ha="left", fontsize=8, color=color,
-                     fontweight="bold", clip_on=False)
-
-    # Shade unobserved region on cumulative panel too
-    ax2.axvspan(last_observed + pd.Timedelta(days=1), xlim_right,
-                color="#f0f0f0", zorder=0)
-    ax2.axvline(last_observed + pd.Timedelta(hours=12), color="#aaaaaa",
-                linewidth=1, linestyle="--", alpha=0.6)
-
-    ax2.set_ylabel("Cumulative Chill Hours")
-    ax2.set_title("Cumulative Chill Hours vs. Historical")
-    ax2.set_xlabel("Date")
-    ax2.grid(axis="y", alpha=0.3)
-    ax2.legend(loc="upper left", fontsize=9)
-
-    # Shared x-axis formatting
-    ax2.set_xlim(xlim_left, xlim_right)
-    ax2.xaxis.set_major_locator(mdates.MonthLocator())
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
-    ax2.minorticks_off()
-    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha="right")
-
-    fig.subplots_adjust(hspace=0.4, right=0.75)
-    fig.savefig(CHART_PATH, dpi=150)
-    print(f"Chart saved to {CHART_PATH}")
-    plt.close(fig)
-
-
-def write_summary_json(nightly, probabilities=None):
+def write_summary_json(nightly, historical=None, probabilities=None):
     """Write a JSON summary of chill hours stats for the web page."""
     total = nightly["cumulative"].iloc[-1] if len(nightly) > 0 else 0
     num_nights = len(nightly)
@@ -473,8 +367,10 @@ def write_summary_json(nightly, probabilities=None):
     for name, target in sorted(VARIETIES.items(), key=lambda x: x[1]):
         entry = {"name": name, "target": int(target), "met": bool(total >= target)}
         if probabilities and name in probabilities:
-            entry["probability"] = round(probabilities[name], 3)
+            entry["probability"] = round(float(probabilities[name]), 3)
         varieties.append(entry)
+
+    season_ts = pd.Timestamp(SEASON_START)
 
     summary = {
         "total_chill_hours": round(total, 1),
@@ -482,7 +378,29 @@ def write_summary_json(nightly, probabilities=None):
         "avg_per_night": round(avg, 2),
         "last_updated": last_date,
         "season": "2025-2026",
+        "season_start": SEASON_START.strftime("%Y-%m-%d"),
+        "xlim_start": f"{SEASON_START.year}-11-01",
+        "xlim_end": f"{SEASON_START.year + 1}-03-31",
         "varieties": varieties,
+        "nightly": [
+            {
+                "date": row.night_date.strftime("%Y-%m-%d"),
+                "chill_hours": round(float(row.chill_hours), 3),
+                "cumulative": round(float(row.cumulative), 3),
+            }
+            for row in nightly.itertuples()
+        ],
+        "historical": [
+            {
+                "date": (season_ts + pd.Timedelta(days=int(i))).strftime("%Y-%m-%d"),
+                "median": round(float(row["median"]), 3),
+                "p25": round(float(row["p25"]), 3),
+                "p75": round(float(row["p75"]), 3),
+                "min": round(float(row["min"]), 3),
+                "max": round(float(row["max"]), 3),
+            }
+            for i, row in historical.iterrows()
+        ] if historical is not None else [],
     }
 
     DATA_DIR.mkdir(exist_ok=True)
@@ -507,8 +425,7 @@ def main():
         probabilities = compute_probabilities(current_total, current_day_offset, all_seasons)
 
     print_summary(nightly, probabilities)
-    plot_chill_hours(nightly, historical_stats, probabilities)
-    write_summary_json(nightly, probabilities)
+    write_summary_json(nightly, historical_stats, probabilities)
 
 
 if __name__ == "__main__":

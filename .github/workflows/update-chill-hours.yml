@@ -47,7 +47,6 @@ jobs:
         run: |
           mkdir -p _site
           cp site/index.html _site/
-          cp data/chill_hours.png _site/
           cp data/summary.json _site/
 
       - uses: actions/upload-pages-artifact@v3

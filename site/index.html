@@ -37,11 +37,7 @@
       padding: 1rem;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       margin-bottom: 1.5rem;
-      text-align: center;
-    }
-    .chart-container img {
-      max-width: 100%;
-      height: auto;
+      overflow-x: auto;
     }
     table {
       width: 100%;
@@ -84,9 +80,8 @@
     </div>
   </div>
 
-  <div class="chart-container">
-    <img src="chill_hours.png" alt="Chill Hours Chart">
-  </div>
+  <div class="chart-container" id="chart-nightly"></div>
+  <div class="chart-container" id="chart-cumulative"></div>
 
   <table>
     <thead>
@@ -106,7 +101,9 @@
     Data from Ambient Weather station. Chill hours = hours between 32&ndash;45&deg;F during nighttime (noon to noon).
   </div>
 
-  <script>
+  <script type="module">
+    import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
+
     fetch('summary.json')
       .then(r => r.json())
       .then(data => {
@@ -140,10 +137,175 @@
             '<td class="' + statusClass + '">' + statusText + '</td>';
           tbody.appendChild(tr);
         });
+
+        renderCharts(data);
       })
       .catch(() => {
         document.getElementById('loading').textContent = 'Could not load summary data.';
       });
+
+    function renderCharts(data) {
+      const nightly = data.nightly || [];
+      const historical = data.historical || [];
+      const varieties = data.varieties || [];
+
+      const xlimStart = new Date(data.xlim_start);
+      const xlimEnd = new Date(data.xlim_end);
+
+      const lastDate = nightly.length > 0
+        ? new Date(nightly[nightly.length - 1].date)
+        : xlimStart;
+      const futureStart = new Date(lastDate.getTime() + 86400000);
+      const midFuture = new Date((futureStart.getTime() + xlimEnd.getTime()) / 2);
+
+      // Group varieties by target to avoid overlapping labels
+      const byTarget = {};
+      varieties.forEach(v => {
+        if (!byTarget[v.target]) byTarget[v.target] = [];
+        byTarget[v.target].push(v);
+      });
+      const varietyGroups = Object.values(byTarget).map(group => ({
+        target: group[0].target,
+        met: group.every(v => v.met),
+        probability: group[0].probability,
+        names: group.map(v => v.name).join(", "),
+      })).sort((a, b) => a.target - b.target);
+
+      const containerNightly = document.getElementById("chart-nightly");
+      const width = Math.max(containerNightly.offsetWidth || 880, 400);
+
+      // --- Chart 1: Nightly bars ---
+      const maxChill = nightly.length > 0
+        ? Math.max(...nightly.map(d => d.chill_hours), 0.5)
+        : 1;
+
+      const nightlyChart = Plot.plot({
+        title: "Daily Chill Hours (32–45°F, noon–noon)",
+        width,
+        height: 220,
+        marginLeft: 55,
+        marginRight: 20,
+        x: { type: "time", domain: [xlimStart, xlimEnd], label: null },
+        y: { label: "Chill hrs/night", grid: true, domain: [0, maxChill * 1.2] },
+        marks: [
+          // Shaded future region (drawn first so bars appear on top)
+          Plot.rect(
+            [{ x1: futureStart, x2: xlimEnd, y1: 0, y2: maxChill * 1.2 }],
+            { x1: "x1", x2: "x2", y1: "y1", y2: "y2", fill: "#f0f0f0" }
+          ),
+          // Nightly bars
+          Plot.rectY(nightly, {
+            x1: d => new Date(d.date),
+            x2: d => { const next = new Date(d.date); next.setDate(next.getDate() + 1); return next; },
+            y1: 0,
+            y2: "chill_hours",
+            fill: d => d.chill_hours > 0 ? "#4a90d9" : "#cccccc",
+            tip: true,
+          }),
+          // Dashed vertical rule at last observed date
+          Plot.ruleX([lastDate], {
+            stroke: "#aaaaaa",
+            strokeDasharray: "4",
+            strokeOpacity: 0.7,
+          }),
+          // "Not yet observed" annotation
+          Plot.text(
+            [{ x: midFuture, y: maxChill * 0.85, text: "Not yet observed" }],
+            { x: "x", y: "y", text: "text", fill: "#999999", fontSize: 11 }
+          ),
+        ],
+      });
+      containerNightly.appendChild(nightlyChart);
+
+      // --- Chart 2: Cumulative with historical overlay ---
+      const containerCumulative = document.getElementById("chart-cumulative");
+
+      const nightlyMax = nightly.length > 0 ? nightly[nightly.length - 1].cumulative : 0;
+      const historicalMax = historical.length > 0 ? Math.max(...historical.map(d => d.max)) : 0;
+      const varietyMax = varietyGroups.length > 0 ? Math.max(...varietyGroups.map(v => v.target)) : 0;
+      const maxCumulative = Math.max(nightlyMax, historicalMax, varietyMax, 10);
+
+      const cumulativeChart = Plot.plot({
+        title: "Cumulative Chill Hours vs. Historical",
+        width,
+        height: 320,
+        marginLeft: 55,
+        marginRight: 20,
+        x: { type: "time", domain: [xlimStart, xlimEnd], label: "Date" },
+        y: { label: "Cumulative Chill Hours", grid: true, domain: [0, maxCumulative * 1.1] },
+        marks: [
+          // Shaded future region
+          Plot.rect(
+            [{ x1: futureStart, x2: xlimEnd, y1: 0, y2: maxCumulative * 1.1 }],
+            { x1: "x1", x2: "x2", y1: "y1", y2: "y2", fill: "#f0f0f0" }
+          ),
+          // Historical min–max band
+          ...(historical.length > 0 ? [
+            Plot.areaY(historical, {
+              x: d => new Date(d.date),
+              y1: "min", y2: "max",
+              fill: "#888888", fillOpacity: 0.08,
+            }),
+            // Historical 25th–75th percentile band
+            Plot.areaY(historical, {
+              x: d => new Date(d.date),
+              y1: "p25", y2: "p75",
+              fill: "#888888", fillOpacity: 0.2,
+            }),
+            // Historical median line
+            Plot.lineY(historical, {
+              x: d => new Date(d.date),
+              y: "median",
+              stroke: "#888888", strokeWidth: 1.5, strokeDasharray: "4",
+            }),
+          ] : []),
+          // Variety threshold lines
+          Plot.ruleY(varietyGroups, {
+            y: "target",
+            stroke: d => d.met ? "#2d8632" : "#b8860b",
+            strokeDasharray: "3",
+            strokeOpacity: 0.7,
+          }),
+          // Current season: filled area
+          Plot.areaY(nightly, {
+            x: d => new Date(d.date),
+            y: "cumulative",
+            fill: "#d94a4a", fillOpacity: 0.15,
+          }),
+          // Current season: line
+          Plot.lineY(nightly, {
+            x: d => new Date(d.date),
+            y: "cumulative",
+            stroke: "#d94a4a", strokeWidth: 2.5,
+          }),
+          // Dashed vertical rule at last observed date
+          Plot.ruleX([lastDate], {
+            stroke: "#aaaaaa",
+            strokeDasharray: "4",
+            strokeOpacity: 0.7,
+          }),
+          // Variety labels at right edge
+          Plot.text(varietyGroups, {
+            x: xlimEnd,
+            y: "target",
+            text: d => {
+              const sym = d.met ? "\u2714" : "\u2022";
+              const prob = !d.met && d.probability != null
+                ? ` \u2014 ${(d.probability * 100).toFixed(0)}%`
+                : "";
+              return `${sym} ${d.names} (${d.target} hrs)${prob}`;
+            },
+            textAnchor: "end",
+            dx: -4,
+            dy: -6,
+            fill: d => d.met ? "#2d8632" : "#b8860b",
+            fontSize: 10,
+            fontWeight: "bold",
+          }),
+        ],
+      });
+      containerCumulative.appendChild(cumulativeChart);
+    }
   </script>
 </body>
 </html>
